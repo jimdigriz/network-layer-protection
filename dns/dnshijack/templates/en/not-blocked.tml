@@ -1,0 +1,31 @@
+<html>
+<head>
+  <title>SOAS - Domain Hijacker</title>
+</head>
+<body>
+  <h1><a href="http://www.soas.ac.uk/">SOAS</a> - Domain Hijacker</h1>
+  <p>
+    Redirected to here when entry is not blacklisted! 
+  </p>
+  <p>
+    Something has gone horribly wrong.   Please
+    <a href="mailto:[% contact.email %]">contact me</a> quoting everything in
+    the &lsquo;debugging&rsquo; section below.
+  </p>
+  <p>
+    Regards <a href="mailto:[% contact.email %]">[% contact.name %] &lt;[% contact.email %]&gt;</a>
+  </p>
+
+  <hr />
+
+  <p>
+    Debugging:
+  </p>
+  <ul>
+    <li><b>URI:</b> [% uri %]</li>
+    <li><b>Date (GMT):</b> [% date %]</li>
+    <li><b>Client IP:</b> [% c.rip %]</li>
+    <li><b>Server IP:</b> [% c.lip %]</li>
+  </ul>
+</body>
+</html>

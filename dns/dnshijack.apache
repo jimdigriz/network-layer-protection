@@ -1,0 +1,49 @@
+NameVirtualHost 1.2.3.4:80
+#Listen 1.2.3.4:80
+
+LogFormat "%h {%{X-Forwarded-For}i} %u %t %{Host}i \"%r\" %>s \"%{Referer}i\" \"%{User-agent}i\"" dnshijack
+
+<VirtualHost 1.2.3.4:80>
+  ServerName *
+
+  DocumentRoot /var/local/dnshijack
+
+  # should catch most if not all realms
+  SetEnvIfNoCase Cookie "dnshijack-[a-z0-9\.]+(\.[a-z0-9\.]+)+-bypass=" dontlog
+
+  LogLevel info
+  CustomLog "|exec /usr/bin/cronolog -S /var/local/dnshijack/log/access.log /var/local/dnshijack/log/access-%Y%m%d.log" dnshijack env=!dontlog
+  ErrorLog "|exec /usr/bin/cronolog -S /var/local/dnshijack/log/error.log /var/local/dnshijack/log/error-%Y%m%d.log"
+
+  ProxyRequests On
+  ProxyVia On
+
+  # list here your internal IP's ranges
+  <Proxy *>
+    Order Deny,Allow
+    Deny from all
+
+    # amend the following to cover your local subnets
+    Allow from 10.0.0.0/8
+    Allow from 172.16.0.0/12
+    Allow from 192.168.0.0/16
+  </Proxy>
+
+  # all the following must be set
+  # space seperated NS list
+  PerlSetEnv dnshijackNS		"1.1.1.1"
+  PerlSetEnv dnshijackREALM		"example.com"
+  PerlSetEnv dnshijackCONTACT_NAME	"Firstname Lastname"
+  ServerAdmin				"me@example.com"
+  PerlSetEnv dnshijackKEY		"TYPE SOME RANDOM SECRET HERE SO MASH KEYBOARD OR SOMETHING"
+  PerlSetEnv dnshijackDEFAULT_LANGUAGE	"en"
+
+  <Perl>
+    use lib '/var/local/dnshijack';
+    1;
+  </Perl>
+  SetHandler perl-script
+  PerlModule DNShijack
+  PerlTransHandler DNShijack::trans_handler
+  PerlResponseHandler DNShijack::handler
+</VirtualHost>

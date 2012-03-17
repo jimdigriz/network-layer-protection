@@ -1,0 +1,381 @@
+#!/bin/sh
+
+# enable debugging (0/1)
+DEBUG=0
+
+# location to put temporary files at
+WORKDIR=/var/tmp
+
+## information to put into the outputted zone file
+# how to handle DNS lookups to blacklisted domain ('redirect'/'refuse')
+TYPE=redirect
+# FQDN (remember trailing '.') to redirect domain to (only for 'TYPE=redirect')
+DST_HOST=ids.example.com.
+# FQDN for MX lookups to domain (comment out to not use)
+#DST_MAIL=localhost.
+
+## DNS blacklist sources to use
+# http://www.malwaredomains.com/
+MALWAREDOMAINS=1
+# https://zeustracker.abuse.ch/blocklist.php
+ZEUS=1
+# http://amada.abuse.ch/blocklist.php
+AMADA=1
+# https://spyeyetracker.abuse.ch/blocklist.php (amada includes spyeye)
+SPYEYE=0
+# http://www.malware.com.br/lists.shtml
+MALWAREBR=0
+# http://www.malware.com.br/conficker.shtml
+MALWAREBR_CONFICKER=1
+
+# grep'able list of domains to whitelist (comment out to not use)
+#WHITELIST=/var/local/blacklist2dns.whitelist
+ 
+## DNS server output location (comment out to skip)
+# unbound
+UNBOUND=/etc/unbound/local-dnshijack
+
+############ END OF USER MODIFIABLE SECTION ############
+
+# return code meaning from /usr/include/sysexits.h
+
+[ "$DEBUG" -a $DEBUG -eq 1 ] && set -x
+
+[ "x$1" = "xforce" ] && FORCE=1 || FORCE=0
+
+SELF=$(basename $0)
+PROCS=$(pgrep -x $SELF)
+RC=$?
+if [ $RC -gt 0 ]; then
+	echo "unexpected pgrep results (ret=$RC)" > /dev/stderr
+	exit 70
+fi
+if [ "$PROCS" != "$$" ]; then
+	echo "'$SELF' is already running" > /dev/stderr
+	exit 69
+fi
+
+if [ "$TYPE" != "redirect" -a "$TYPE" != "refuse" ]; then
+	echo "unknown handling type '$TYPE'" > /dev/stderr
+	exit 64
+fi
+
+if [ "$TYPE" = "redirect" ]; then
+	DST_A=$(nslookup -type=a $DST_HOST 2> /dev/null | grep -m 1 '^Address: ' | cut -d' ' -f 2)
+	DST_AAAA=$(nslookup -type=aaaa $DST_HOST 2> /dev/null | grep -m 1 'has AAAA address ' | cut -d' ' -f 4)
+
+	if [ ! "$DST_A" -a ! "$DST_AAAA" ]; then
+		echo "cannot get any IP information for $DST_HOST" > /dev/stderr
+		exit 68
+	fi
+fi
+
+if [ "$WHITELIST" ]; then
+	if [ ! -f "$WHITELIST" ]; then
+		echo "whitelist is not a file or non-existant" > /dev/stderr
+		exit 64
+	fi
+else
+	WHITELIST=/dev/null
+fi
+
+create_directory () {
+	local DIRECTORY RC
+	DIRECTORY=$1
+
+	if [ -e "$DIRECTORY" ]; then
+		if [ ! -d "$DIRECTORY" ]; then
+			echo "'$DIRECTORY' already exists but is not a directory" > /dev/stderr
+			return 73
+		fi
+	else
+		mkdir "$DIRECTORY"
+		RC=$?
+		if [ $RC -ne 0 ]; then
+			echo "unable to create workdir ('$DIRECTORY'): $RC" > /dev/stderr
+			return 70
+		fi
+	fi
+
+	return 0
+}
+
+# generic HTTP Last-Modified support
+fetch_T () {
+	local REF LNK URI OUT LOC POS RC
+	REF="$1"
+	LNK="$2"
+	URI="$3"
+	OUT="$4"
+	POS="$5"
+	LOC="$WORKDIR/$SELF/$REF"
+
+	echo "processing $REF..."
+
+	create_directory "$LOC"
+	[ $? -ne 0 ] && return 70
+
+	local TS
+	[ -f "$LOC/$OUT" ] && TS=$(stat -c %Y "$LOC/$OUT") || TS=0 
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to stat '$LOC/$OUT': $RC" > /dev/stderr
+		return 70
+	fi
+
+	wget -q --user-agent="Wget/$SELF (http://www.digriz.org.uk/dns-malware-blacklisting)" --no-cache -P "$LOC" -N --content-disposition --no-check-certificate "$URI"
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to call wget: $RC" > /dev/stderr
+		return 70
+	fi
+	
+	if [ $FORCE -eq 0 -a $(stat -c %Y "$LOC/$OUT") -eq $TS ]; then
+		echo "finished processing $REF, nothing to do"
+		echo
+		return 1
+	fi
+
+	local BUF
+	BUF=$(awk '/^[^#].*[^[[:print:]]]/ { print " *", FNR }' "$LOC/$OUT")
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to call awk[unprintable]: $RC" > /dev/stderr
+		return 70
+	fi
+	if [ "$BUF" ]; then
+		echo "unprintable characters at lines:" > /dev/stderr
+		echo "$BUF" > /dev/stderr
+	fi
+
+	BUF=$(awk '!/^(#|$)/ && !/[^[[:print:]]]/ { print " *", $'$POS' }' "$LOC/$OUT" | tr A-Z a-z | sort | uniq -d)
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to call awk|sort|uniq[duplicates]: $RC" > /dev/stderr
+		return 70
+	fi
+	if [ "$BUF" ]; then
+		echo "following domains (remember case-insensitive) are duplicates:" > /dev/stderr
+		echo "$BUF" > /dev/stderr
+	fi
+
+	rm -f "$WORKDIR/$SELF/$REF.list"
+
+	( awk '!/^(#|$)/ && !/[^[[:print:]]]/ { print $'$POS' }' "$LOC/$OUT" | tr A-Z a-z | sort | uniq -u > "$WORKDIR/$SELF/fifo" ) &
+	local DOMAIN
+
+	[ "$DEBUG" -a $DEBUG -eq 1 ] && set +x
+
+	while read DOMAIN; do
+		# FIXME validate domain properly and further
+		[ "${DOMAIN%%\.}" != "$DOMAIN" ] && DOMAIN=${DOMAIN%%\.}
+
+		echo $DOMAIN $REF $LNK >> "$WORKDIR/$SELF/$REF.list"
+	done < "$WORKDIR/$SELF/fifo"
+
+	[ "$DEBUG" -a $DEBUG -eq 1 ] && set -x
+
+	echo "finished processing $REF, issuing trigger"
+	echo
+
+	return 0
+}
+
+# generic non-HTTP Last-Modified support
+fetch_M () {
+	local REF LNK URI OUT LOC POS RC
+	REF="$1"
+	LNK="$2"
+	URI="$3"
+	OUT="$4"
+	POS="$5"
+	LOC="$WORKDIR/$SELF/$REF"
+
+	echo "processing $REF..."
+
+	create_directory "$LOC"
+	[ $? -ne 0 ] && return 70
+
+	local SUM
+	[ -f "$LOC/$OUT" ] && SUM=$(grep -v '^\(#\|$\)' "$LOC/$OUT" | md5sum - | cut -d' ' -f 1) || SUM=""
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to md5sum '$LOC/$OUT': $RC" > /dev/stderr
+		return 70
+	fi
+
+	wget -q --user-agent="Wget/$SELF (http://www.digriz.org.uk/dns-malware-blacklisting)" --no-cache -O "$LOC/$OUT" --no-check-certificate "$URI"
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to call wget: $RC" > /dev/stderr
+		return 70
+	fi
+
+	if [ $FORCE -eq 0 -a $(grep -v '^\(#\|$\)' "$LOC/$OUT" | md5sum - | cut -d' ' -f 1) = "$SUM" ]; then
+		echo "finished processing $REF, nothing to do"
+		echo
+		return 1
+	fi
+
+	local BUF
+	BUF=$(awk '/^[^#].*[^[[:print:]]]/ { print " *", FNR }' "$LOC/$OUT")
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to call awk[unprintable]: $RC" > /dev/stderr
+		return 70
+	fi
+	if [ "$BUF" ]; then
+		echo "unprintable characters at lines:" > /dev/stderr
+		echo "$BUF" > /dev/stderr
+	fi
+
+	BUF=$(awk '!/^(#|$)/ && !/[^[[:print:]]]/ { print " *", $'$POS' }' "$LOC/$OUT" | tr A-Z a-z | sort | uniq -d)
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to call awk|sort|uniq[duplicates]: $RC" > /dev/stderr
+		return 70
+	fi
+	if [ "$BUF" ]; then
+		echo "following domains (remember case-insensitive) are duplicates:" > /dev/stderr
+		echo "$BUF" > /dev/stderr
+	fi
+
+	rm -f "$WORKDIR/$SELF/$REF.list"
+
+	( awk '!/^(#|$)/ && !/[^[[:print:]]]/ { print $'$POS' }' "$LOC/$OUT" | tr A-Z a-z | sort | uniq -u > "$WORKDIR/$SELF/fifo" ) &
+	local DOMAIN
+
+	[ "$DEBUG" -a $DEBUG -eq 1 ] && set +x
+
+	while read DOMAIN; do
+		# FIXME validate domain properly and further
+		[ "${DOMAIN%%\.}" != "$DOMAIN" ] && DOMAIN=${DOMAIN%%\.}
+
+		echo $DOMAIN $REF $LNK >> "$WORKDIR/$SELF/$REF.list"
+	done < "$WORKDIR/$SELF/fifo"
+
+	[ "$DEBUG" -a $DEBUG -eq 1 ] && set -x
+
+	echo "finished processing $REF, issuing trigger"
+	echo
+
+	return 0
+}
+
+generate_unbound () {
+	local DOMAIN REASON LINKY
+	DOMAIN=$(echo $1 | cut -d' ' -f 1)
+	REASON=$(echo $1 | cut -d' ' -f 2)
+	LINKY=$(echo $1 | cut -d' ' -f 3)
+
+	echo local-zone: \"$DOMAIN.\" $TYPE
+
+	if [ "$TYPE" = "redirect" ]; then
+		# FIXME this could be too long for long domainnames
+		echo local-data: \'$DOMAIN. 30 IN TXT \"v=dbl1 : $DOMAIN : $REASON : $LINKY\"\'
+
+		if [ "$DST_A" ]; then
+			echo local-data: \"$DOMAIN. 30 IN A $DST_A\"
+		fi
+		if [ "$DST_AAAA" ]; then
+			echo local-data: \"$DOMAIN. 30 IN AAAA $DST_AAAA\"
+		fi
+		if [ "$DST_MAIL" ]; then
+			echo local-data: \"$DOMAIN. 30 IN MX 0 $DST_MAIL\"
+		fi
+	fi
+
+	return 0
+}
+
+create_directory "$WORKDIR/$SELF"
+[ $? -ne 0 ] && exit 70
+
+if [ ! -p "$WORKDIR/$SELF/fifo" ]; then
+	mkfifo -m 0600 "$WORKDIR/$SELF/fifo"
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "unable to create fifo '$WORKDIR/$SELF/fifo': $RC" > /dev/stderr
+		exit 70
+	fi
+fi
+
+TRIGGER=0
+if [ $MALWAREDOMAINS -ne 0 ]; then
+	REF="malwaredomains"
+	LNK="http://www.malwaredomains.com/"
+	URI="http://www.malwaredomains.com/files/justdomains"
+	OUT="justdomains"
+
+	fetch_T "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/malwaredomains.list"
+fi
+if [ $ZEUS -ne 0 ]; then
+	REF="zeus"
+	LNK="https://zeustracker.abuse.ch/"
+	URI="https://zeustracker.abuse.ch/blocklist.php?download=domainblocklist"
+	OUT="zeus_domainblocklist.txt"
+
+	fetch_T "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/zeus.list"
+fi
+if [ $AMADA -ne 0 ]; then
+	REF="amada"
+	LNK="http://amada.abuse.ch/"
+	URI="http://amada.abuse.ch/blocklist.php?download=domainblocklist"
+	OUT="amada_domainblocklist.txt"
+
+	fetch_M "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/amada.list"
+fi
+if [ $SPYEYE -ne 0 ]; then
+	REF="spyeye"
+	LNK="https://spyeyetracker.abuse.ch/"
+	URI="https://spyeyetracker.abuse.ch/blocklist.php?download=domainblocklist"
+	OUT="spyeye_domainblocklist.txt"
+
+	fetch_T "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/spyeye.list"
+fi
+if [ $MALWAREBR -ne 0 ]; then
+	REF="malwarebr"
+	LNK="http://www.malware.com.br/lists.shtml"
+	URI="http://www.malware.com.br/cgi/submit?action=list_hosts_win_127001"
+	OUT="list_hosts_win_127001"
+
+	fetch_M "$REF" "$LNK" "$URI" "$OUT" 2	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/malwarebr.list"
+fi
+if [ $MALWAREBR_CONFICKER -ne 0 ]; then
+	REF="malwarebr_conficker"
+	LNK="http://www.malware.com.br/conficker.shtml"
+	URI="http://lists.malwarepatrol.net/conficker/conficker_hosts127001.txt"
+	OUT="conficker_hosts127001.txt"
+
+	fetch_T "$REF" "$LNK" "$URI" "$OUT" 2	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/malwarebr_conficker.list"
+fi
+
+rm "$WORKDIR/$SELF/fifo"
+
+[ $TRIGGER -eq 0 ] && exit 1
+
+[ "$UNBOUND" ] && rm -f "$WORKDIR/$SELF/conf.unbound"
+
+[ "$DEBUG" -a $DEBUG -eq 1 ] && set +x
+
+awk '!($1 in a) { a[$1]; print }' "$WORKDIR/$SELF/"*.list | grep -v -f "$WHITELIST" | while read ENTRY; do
+	[ "$UNBOUND" ] && generate_unbound "$ENTRY" >> "$WORKDIR/$SELF/conf.unbound"
+done
+
+[ "$DEBUG" -a $DEBUG -eq 1 ] && set -x
+
+[ "$UNBOUND" ] && mv "$WORKDIR/$SELF/conf.unbound" "$UNBOUND"
+
+exit 0

@@ -1,0 +1,110 @@
+#!/bin/sh
+
+#set -x
+
+WORKDIR=/var/tmp
+
+ET="http://emergingthreats.net/fwrules/emerging-Block-IPs.txt"
+ZEUS="https://zeustracker.abuse.ch/blocklist.php?download=ipblocklist\zeus_ipblocklist.txt"
+
+# whitelisting support - uncomment to use
+# N.B. you can only whitelist CIDR's equal to or larger in size
+#	than the blacklistings blocks
+WHITELIST=/var/local/iplist-whitelist
+
+if [ ! "$ET" -a ! "$ZEUS" ]; then
+	echo "no lists set to be downloaded"
+	exit 2
+fi
+
+FORCE=$1
+
+download () {
+	local TS
+	local URI
+	local FILE
+
+	TS=0
+	URI=${1%\\*}
+	FILE=${1#*\\}
+	if [ "${FILE}" = "$URI" ]; then
+		FILE=$(basename "$1")
+	fi
+
+	if [ -f "$WORKDIR/$FILE" ]; then
+		TS=$(stat -c %Y "$WORKDIR/$FILE")
+	fi
+
+	# TODO: add instructions to get rid of no-check-cert
+	wget -nv -P "$WORKDIR" -N --content-disposition --no-check-certificate "$URI"
+	if [ $? -ne 0 ]; then
+		echo "problem downloading '$FILE'"
+		return 2
+	fi
+
+	grep '^[1-9]' "$WORKDIR/$FILE" >> "$WORKDIR/iplist"
+
+	if [ $TS -eq $(stat -c %Y "$WORKDIR/$FILE") ]; then
+		return 1
+	fi
+
+	return 0
+}
+
+rm -f "$WORKDIR/iplist"
+
+GO=0
+for SOURCE in "$ET" "$ZEUS"
+do
+	if [ -z "$SOURCE" ]; then
+		continue
+	fi
+
+	download "$SOURCE"
+	RET=$?
+	if [ $RET -gt 1 ]; then
+		exit 1
+	fi
+
+	if [ $RET -eq 0 ]; then
+		GO=1
+	fi
+done
+
+if [ ! "$FORCE" -a $GO -eq 0 ]; then
+	exit 1
+fi
+
+# we use '-P2' in xargs as by adding it we nearly make things 50% faster,
+# bumping it up further does not give you much additional improvement
+ip route list realm filthpit | xargs -I{} -P2 sh -c 'ip route del {}'
+
+if [ "$WHITELIST" -a -f "$WHITELIST" ]; then
+	grep '^[1-9]' "$WHITELIST" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | uniq | xargs -I{} ip route add {} dev lo realm filthpit
+fi
+
+# we could do the below with the full xargs malarkey but by checking to see
+# if the route already exists we trim a bunch of CIDR-in-CIDR duplicates
+#set +x
+for IP in $(sort -t. -k1,1n -k2,2n -k3,3n -k4,4n "$WORKDIR/iplist" | uniq)
+do
+	ROUTE=$(ip route get $IP 2> /dev/null | head -n1 | cut -d\  -f 3)
+	if [ -z "$ROUTE" ]; then
+		echo "unable to deal with '$IP'"
+		continue
+	fi
+
+	if [ $ROUTE != 'dummy0' -a $ROUTE != 'lo' ]; then
+		ip route add $IP dev dummy0 realm filthpit metric 5 2> /dev/null
+
+		if [ $? -ne 0 ]; then
+			echo "error: ip route add $IP dev dummy0 realm filthpit metric 5"
+		fi
+	fi
+done
+#set -x
+
+# now prune the whitelisted routes to ospf stops advertising them
+ip route show dev lo realm filthpit | xargs -I{} sh -c 'ip route del {}'
+
+exit 0

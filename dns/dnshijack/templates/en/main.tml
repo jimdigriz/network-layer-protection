@@ -1,0 +1,98 @@
+<html>
+<head>
+  <title>SOAS - Domain Hijacker</title>
+</head>
+<body>
+  <h1><a href="http://www.soas.ac.uk/">SOAS</a> - Domain Hijacker</h1>
+  <p>
+    You are seeing this page because the website you have requested is on a
+    blacklist we use to prevent you from accidently stumbling onto websites
+    that contain (for example):
+  </p>
+  <ul>
+    <li><a href="http://en.wikipedia.org/wiki/Malware">malware</a></li>
+    <li><a href="http://en.wikipedia.org/wiki/Spyware">spyware</a></li>
+    <li><a href="http://en.wikipedia.org/wiki/Computer_virus">viruses</a></li>
+    <li>linked to <a href="http://en.wikipedia.org/wiki/Phishing">phishing</a></li>
+  </ul>
+  
+  <p>  
+    This system is <em>not</em> designed to censor your Internet experience
+    but to protect your workstation, our network equipment and also detect
+    any infected computers on our network.
+  </p>
+
+  <p>
+    The following links might help you discover why the website you are trying to
+    access is unavailable:
+  </p>
+  <ul>
+    <li><a href="http://www.google.com/safebrowsing/diagnostic?site=[% domain %]">Google SafeBrowsing</a></li>
+    <li><a href="http://hosts-file.net/default.asp?s=[% domain %]">hpHosts</a> - slow to open</li>
+    <li><a href="http://www.siteadvisor.com/sites/[% domain %]">McAfee SiteAdvisor</a></li>
+    <li><a href="http://safeweb.norton.com/report/show?url=[% domain %]">Norton Safe Web</a></li>
+    <li><a href="http://www.mywot.com/en/scorecard/[% domain %]">Web Of Trust</a></li>
+  </ul>
+
+  <p>
+    If you feel the website you are trying to go to should not be blacklisted
+    then you should contact the support team that <u>maintain the website</u>
+    with a copy of this page (File -> Save As) attached to your email.  They
+    will then need to do whatever work is necessary to get themselves delisted.
+    <em>Only</em> the support team who run the website can perform this task,
+    nobody else can!
+  </p>
+  <p>
+    <b>N.B.</b> do <em>not</em> contact any blacklists yourself as
+    	all they do is provide a blacklist that SOAS has choosen to use.  They
+	are not responsible for this decision and if you approach them yourself
+	regarding whitelisting they will be unable to help.
+  </p>
+
+  <p>
+    To temporarily bypass the block you can accept the risk we consider you
+    will be taking in going to the site by clicking on the submission button
+    below.  Important points to note regarding use of this button:
+  </p>
+  <ul>
+    <li>if this is not a site you have visited before then we
+    	<em>strongly</em> recommend you do <em>not</em> visit it and simply
+	forget it exists...</li>
+    <li>we log attempts to visit blocked websites, if you decide to contine
+    	and accept the risk of visiting the website we no longer log your
+	traffic to it</li>
+    <li>the temporarily whitelisting lasts until you close your webbrowser
+    	and works by using a session-only cookie (nothing is physically
+	stored on your computer)</li>
+  </ul>
+
+  <form method="POST" action="[% r.path %]">
+    <input type="submit" name="dnshijack-[% realm %]-accept-risk" value="Accept Risk"/>
+  </form>
+
+  <p>
+    If you are having any technical (<em>not</em> anything that is more
+    &lsquo;political&rsquo; in nature please) issues, questions or suggestions
+    for improvement in regards to the system then do please
+    <a href="mailto:[% contact.email %]">contact me</a>.  When doing so, please
+    quote everything in the &lsquo;debugging&rsquo; section below.
+  </p>
+  <p>
+    Regards <a href="mailto:[% contact.email %]">[% contact.name %] &lt;[% contact.email %]&gt;</a>
+  </p>
+
+  <hr />
+
+  <p>
+    Debugging:
+  </p>
+  <ul>
+    <li><b>URI:</b> [% uri %]</li>
+    <li><b>Date (GMT):</b> [% date %]</li>
+    <li><b>Client IP:</b> [% c.rip %]</li>
+    <li><b>Server IP:</b> [% c.lip %]</li>
+    <li><b>Domain Blocked:</b> [% domain %]</li>
+    <li><b>Reason for Block:</b> [% reason %]</li>
+  </ul>
+</body>
+</html>
