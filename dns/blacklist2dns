@@ -26,7 +26,7 @@ SPYEYE=0
 # http://www.malware.com.br/lists.shtml
 MALWAREBR=0
 # http://www.malware.com.br/conficker.shtml
-MALWAREBR_CONFICKER=1
+MALWAREBR_CONFICKER=0
 
 # grep'able list of domains to whitelist (comment out to not use)
 #WHITELIST=/var/local/blacklist2dns.whitelist
@@ -123,7 +123,7 @@ fetch_T () {
 		return 70
 	fi
 
-	wget -q --user-agent="Wget/$SELF (http://www.digriz.org.uk/dns-malware-blacklisting)" --no-cache -P "$LOC" -N --content-disposition --no-check-certificate "$URI"
+	wget -q --user-agent="Wget/$SELF (http://www.digriz.org.uk/network-layer-protection/dns)" --no-cache -P "$LOC" -N --content-disposition --no-check-certificate "$URI"
 	RC=$?
 	if [ $RC -ne 0 ]; then
 		echo "unable to call wget: $RC" > /dev/stderr
@@ -204,7 +204,7 @@ fetch_M () {
 		return 70
 	fi
 
-	wget -q --user-agent="Wget/$SELF (http://www.digriz.org.uk/dns-malware-blacklisting)" --no-cache -O "$LOC/$OUT" --no-check-certificate "$URI"
+	wget -q --user-agent="Wget/$SELF (http://www.digriz.org.uk/network-layer-protection/dns)" --no-cache -O "$LOC/$OUT" --no-check-certificate "$URI"
 	RC=$?
 	if [ $RC -ne 0 ]; then
 		echo "unable to call wget: $RC" > /dev/stderr
