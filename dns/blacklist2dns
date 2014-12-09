@@ -127,13 +127,13 @@ fetch_T () {
 		return 70
 	fi
 
-	wget -q --user-agent="$USERAGENT" --no-cache -P "$LOC" -N --content-disposition --no-check-certificate "$URI"
+	wget -q --user-agent="$USERAGENT" --no-cache -P "$LOC" -N --content-disposition "$URI"
 	RC=$?
 	if [ $RC -ne 0 ]; then
 		echo "unable to call wget: $RC" > /dev/stderr
 		return 70
 	fi
-	
+
 	if [ $FORCE -eq 0 -a $(stat -c %Y "$LOC/$OUT") -eq $TS ]; then
 		echo "finished processing $REF, nothing to do"
 		echo
@@ -208,7 +208,7 @@ fetch_M () {
 		return 70
 	fi
 
-	wget -q --user-agent="$USERAGENT" --no-cache -O "$LOC/$OUT" --no-check-certificate "$URI"
+	wget -q --user-agent="$USERAGENT" --no-cache -O "$LOC/$OUT" "$URI"
 	RC=$?
 	if [ $RC -ne 0 ]; then
 		echo "unable to call wget: $RC" > /dev/stderr
