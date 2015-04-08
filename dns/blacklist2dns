@@ -19,12 +19,14 @@ DST_HOST=ids.example.com.
 MALWAREDOMAINS=1
 # https://zeustracker.abuse.ch/blocklist.php
 ZEUS=1
-# http://amada.abuse.ch/blocklist.php
-AMADA=1
-# https://spyeyetracker.abuse.ch/blocklist.php (amada includes spyeye)
-SPYEYE=0
-# http://www.malware.com.br/lists.shtml
-MALWAREBR=0
+# https://feodotracker.abuse.ch/blocklist
+FEODO=1
+# https://spyeyetracker.abuse.ch/blocklist.php
+SPYEYE=1
+# https://palevotracker.abuse.ch/blocklists.php
+PALEVO=1
+# https://isc.sans.edu/suspicious_domains.html
+ISCHIGH=1
 # http://www.malware.com.br/conficker.shtml
 MALWAREBR_CONFICKER=1
 
@@ -125,13 +127,13 @@ fetch_T () {
 		return 70
 	fi
 
-	wget -q --user-agent="$USERAGENT" --no-cache -P "$LOC" -N --content-disposition --no-check-certificate "$URI"
+	wget -q --user-agent="$USERAGENT" --no-cache -P "$LOC" -N --content-disposition "$URI"
 	RC=$?
 	if [ $RC -ne 0 ]; then
 		echo "unable to call wget: $RC" > /dev/stderr
 		return 70
 	fi
-	
+
 	if [ $FORCE -eq 0 -a $(stat -c %Y "$LOC/$OUT") -eq $TS ]; then
 		echo "finished processing $REF, nothing to do"
 		echo
@@ -206,7 +208,7 @@ fetch_M () {
 		return 70
 	fi
 
-	wget -q --user-agent="$USERAGENT" --no-cache -O "$LOC/$OUT" --no-check-certificate "$URI"
+	wget -q --user-agent="$USERAGENT" --no-cache -O "$LOC/$OUT" "$URI"
 	RC=$?
 	if [ $RC -ne 0 ]; then
 		echo "unable to call wget: $RC" > /dev/stderr
@@ -323,15 +325,15 @@ if [ $ZEUS -ne 0 ]; then
 else
 	rm -f "$WORKDIR/$SELF/zeus.list"
 fi
-if [ $AMADA -ne 0 ]; then
-	REF="amada"
-	LNK="http://amada.abuse.ch/"
-	URI="http://amada.abuse.ch/blocklist.php?download=domainblocklist"
-	OUT="amada_domainblocklist.txt"
+if [ $FEODO -ne 0 ]; then
+	REF="feodo"
+	LNK="https://feodotracker.abuse.ch/"
+	URI="https://feodotracker.abuse.ch/blocklist/?download=domainblocklist"
+	OUT="feodo_domainblocklist.txt"
 
 	fetch_M "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
 else
-	rm -f "$WORKDIR/$SELF/amada.list"
+	rm -f "$WORKDIR/$SELF/feodo.list"
 fi
 if [ $SPYEYE -ne 0 ]; then
 	REF="spyeye"
@@ -343,15 +345,25 @@ if [ $SPYEYE -ne 0 ]; then
 else
 	rm -f "$WORKDIR/$SELF/spyeye.list"
 fi
-if [ $MALWAREBR -ne 0 ]; then
-	REF="malwarebr"
-	LNK="http://www.malware.com.br/lists.shtml"
-	URI="http://www.malware.com.br/cgi/submit?action=list_hosts_win_127001"
-	OUT="list_hosts_win_127001"
+if [ $PALEVO -ne 0 ]; then
+	REF="palevo"
+	LNK="https://palevotracker.abuse.ch/"
+	URI="https://palevotracker.abuse.ch/blocklists.php?download=domainblocklist"
+	OUT="palevoblocklist.txt"
 
-	fetch_M "$REF" "$LNK" "$URI" "$OUT" 2	&& TRIGGER=$(($TRIGGER + 1))
+	fetch_T "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
 else
-	rm -f "$WORKDIR/$SELF/malwarebr.list"
+	rm -f "$WORKDIR/$SELF/palevo.list"
+fi
+if [ $ISCHIGH -ne 0 ]; then
+	REF="ischigh"
+	LNK="https://isc.sans.edu/"
+	URI="https://isc.sans.edu/feeds/suspiciousdomains_High.txt"
+	OUT="suspiciousdomains_High.txt"
+
+	fetch_T "$REF" "$LNK" "$URI" "$OUT" 1	&& TRIGGER=$(($TRIGGER + 1))
+else
+	rm -f "$WORKDIR/$SELF/ischigh.list"
 fi
 if [ $MALWAREBR_CONFICKER -ne 0 ]; then
 	REF="malwarebr_conficker"
