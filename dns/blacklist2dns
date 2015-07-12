@@ -93,7 +93,7 @@ create_directory () {
 			return 73
 		fi
 	else
-		mkdir "$DIRECTORY"
+		mkdir -p "$DIRECTORY"
 		RC=$?
 		if [ $RC -ne 0 ]; then
 			echo "unable to create workdir ('$DIRECTORY'): $RC" > /dev/stderr
